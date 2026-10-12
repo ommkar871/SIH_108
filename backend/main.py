@@ -1,13 +1,3 @@
-"""
-BIS-Sync: Semantic Search Backend
-==================================
-A FastAPI-based semantic search engine for Indian Standards (BIS codes)
-that translates natural language procurement specs into verified standards.
-
-Run with: python main.py
-Access at: http://localhost:8000
-"""
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -18,9 +8,6 @@ import os
 from datetime import datetime
 import logging
 
-# ============================================================================
-# SETUP & LOGGING
-# ============================================================================
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,7 +18,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for React frontend
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -40,28 +27,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ============================================================================
-# GLOBAL STATE (loaded on startup)
-# ============================================================================
 
 model = None
 df = None
 index = None
 embeddings = None
 
-# ============================================================================
-# STARTUP
-# ============================================================================
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the embedding model and vector database"""
+    
     global model, df, index, embeddings
     
-    logger.info("🚀 BIS-Sync Starting Up...")
+    logger.info("BIS-Sync Starting Up...")
     
-    # 1. Load the embedding model
-    logger.info("📦 Loading SentenceTransformer model (all-MiniLM-L6-v2)...")
+    # Load the embedding model
+    logger.info(" Loading SentenceTransformer model (all-MiniLM-L6-v2)...")
     try:
         model = SentenceTransformer('all-MiniLM-L6-v2')
         logger.info("✅ Model loaded successfully")
@@ -69,8 +50,8 @@ async def startup_event():
         logger.error(f"❌ Failed to load model: {e}")
         raise
     
-    # 2. Load BIS standards from CSV
-    logger.info("📋 Loading BIS standards from CSV...")
+    # Load BIS standards from CSV
+    logger.info("Loading BIS standards from CSV...")
     csv_path = 'BIS_Standards.csv'
     
     if not os.path.exists(csv_path):
@@ -84,8 +65,8 @@ async def startup_event():
         logger.error(f"❌ Failed to load CSV: {e}")
         raise
     
-    # 3. Create embeddings for all standards
-    logger.info("🧠 Creating embeddings for all standards (this may take 1-2 minutes)...")
+    # Create embeddings for all standards
+    logger.info("Creating embeddings for all standards (this may take 1-2 minutes)...")
     try:
         descriptions = df['DESCRIPTION'].tolist()
         embeddings = model.encode(descriptions, convert_to_numpy=True, show_progress_bar=True)
@@ -94,8 +75,8 @@ async def startup_event():
         logger.error(f"❌ Failed to create embeddings: {e}")
         raise
     
-    # 4. Create FAISS index
-    logger.info("⚡ Building FAISS vector index...")
+    # Create FAISS index
+    logger.info(" Building FAISS vector index...")
     try:
         dimension = embeddings.shape[1]
         index = faiss.IndexFlatL2(dimension)
@@ -105,16 +86,13 @@ async def startup_event():
         logger.error(f"❌ Failed to create FAISS index: {e}")
         raise
     
-    logger.info("🎉 Backend initialized and ready!")
+    logger.info(" Backend initialized")
     logger.info("=" * 60)
 
-# ============================================================================
-# ENDPOINTS
-# ============================================================================
 
 @app.get("/")
 def root():
-    """Welcome endpoint"""
+    
     return {
         "message": "Welcome to BIS-Sync API",
         "endpoints": {
@@ -127,7 +105,7 @@ def root():
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint"""
+    
     return {
         "status": "OK",
         "timestamp": datetime.now().isoformat(),
@@ -138,27 +116,8 @@ def health_check():
 
 @app.get("/search")
 def search(query: str, top_k: int = 3):
-    """
-    🔍 Search for matching BIS standards using semantic similarity
-    
-    Parameters:
-    -----------
-    query : str
-        Natural language description of what you need
-        Example: "galvanized steel pipe for drinking water, 100mm diameter"
-    
-    top_k : int (default=3)
-        Number of results to return (1-10)
-    
-    Returns:
-    --------
-    JSON object with matched standards and relevance scores
-    
-    Example Usage:
-    http://localhost:8000/search?query=reinforcement%20steel%20bar%20concrete&top_k=3
-    """
-    
-    # Validate input
+   
+    # Verify input
     if not query or len(query.strip()) == 0:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
@@ -169,26 +128,23 @@ def search(query: str, top_k: int = 3):
         raise HTTPException(status_code=503, detail="Backend not fully initialized")
     
     try:
-        # 1. Convert user query to embedding
+        # Convert user query to embedding
         query_embedding = model.encode([query], convert_to_numpy=True)
         
-        # 2. Search FAISS index
+        # Search FAISS index
         distances, indices = index.search(query_embedding.astype('float32'), top_k)
         
-        # 3. Prepare results
+        # Prepare results
         results = []
         for rank, idx in enumerate(indices[0], 1):
             row = df.iloc[idx]
             distance = distances[0][rank - 1]
             
-            # Convert L2 distance to match percentage (0-100)
-            # Lower distance = better match
-            # Max reasonable distance is ~2.0 for this embedding space
             match_score = float(max(0, 100 - (float(distance) * 25)))
             
             # Extract keywords from description
             description = row['DESCRIPTION']
-            keywords = description.split()[:8]  # First 8 words as keywords
+            keywords = description.split()[:8]  
             keywords_str = ' '.join(keywords)
             
             results.append({
@@ -217,21 +173,6 @@ def search(query: str, top_k: int = 3):
 
 @app.get("/standards")
 def get_all_standards(skip: int = 0, limit: int = 100):
-    """
-    📋 Get all available BIS standards with pagination
-    
-    Parameters:
-    -----------
-    skip : int (default=0)
-        Number of standards to skip
-    
-    limit : int (default=100)
-        Number of standards to return (max 100)
-    
-    Returns:
-    --------
-    List of all BIS standards in database
-    """
     
     if df is None:
         raise HTTPException(status_code=503, detail="Standards not loaded")
@@ -251,18 +192,6 @@ def get_all_standards(skip: int = 0, limit: int = 100):
 
 @app.get("/standards/{is_code}")
 def get_standard_by_code(is_code: str):
-    """
-    🔎 Get details of a specific standard by IS code
-    
-    Parameters:
-    -----------
-    is_code : str
-        The IS code (e.g., "IS 1239")
-    
-    Returns:
-    --------
-    Full details of the matched standard
-    """
     
     if df is None:
         raise HTTPException(status_code=503, detail="Standards not loaded")
@@ -278,13 +207,6 @@ def get_standard_by_code(is_code: str):
 
 @app.get("/domains")
 def get_domains():
-    """
-    🏢 Get list of all domains in the database
-    
-    Returns:
-    --------
-    Unique domains and count of standards in each
-    """
     
     if df is None:
         raise HTTPException(status_code=503, detail="Standards not loaded")
@@ -299,24 +221,6 @@ def get_domains():
 
 @app.get("/search-by-domain")
 def search_by_domain(query: str, domain: str, top_k: int = 3):
-    """
-    🎯 Search for BIS standards within a specific domain
-    
-    Parameters:
-    -----------
-    query : str
-        Natural language search query
-    
-    domain : str
-        Domain filter (e.g., "Civil", "Electrical", "Mechanical", "Water/Civil")
-    
-    top_k : int (default=3)
-        Number of results to return
-    
-    Returns:
-    --------
-    Filtered results from the specified domain
-    """
     
     if model is None or index is None or df is None:
         raise HTTPException(status_code=503, detail="Backend not initialized")
@@ -368,7 +272,7 @@ def get_stats():
         "domain_breakdown": df['DOMAIN'].value_counts().to_dict(),
         "avg_description_length": int(df['DESCRIPTION'].str.len().mean()),
         "is_codes": df['IS_CODE'].nunique(),
-        "model_dimensions": 384,  # all-MiniLM-L6-v2 uses 384 dimensions
+        "model_dimensions": 384,  
         "search_engine": "FAISS (Flat L2)"
     }
 
@@ -384,19 +288,17 @@ async def http_exception_handler(request, exc):
         "detail": exc.detail
     }
 
-# ============================================================================
-# MAIN
-# ============================================================================
+
 
 if __name__ == "__main__":
     import uvicorn
     
     print("\n" + "=" * 60)
-    print("🚀 BIS-Sync Backend Starting")
+    print("BIS-Sync Backend Starting")
     print("=" * 60)
-    print("📍 API URL: http://localhost:8000")
-    print("📚 API Docs: http://localhost:8000/docs")
-    print("⚠️  Make sure BIS_Standards.csv is in the same directory")
+    print(" API URL: http://localhost:8000")
+    print("API Docs: http://localhost:8000/docs")
+    print(" Make sure BIS_Standards.csv is in the same directory")
     print("=" * 60 + "\n")
     
     uvicorn.run(
